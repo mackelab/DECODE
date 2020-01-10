@@ -33,13 +33,13 @@ class Funcs:
             hbar = hbar.repeat_interleave(self.batch_size, 0)
             hiddens = self.recfunc(x, return_map=True)
 
-            p, _, _, _ = self.recfunc(x, self.n_samples, hbar, sample=False)
+            p, _, _, _, _ = self.recfunc(x, self.n_samples, hbar, sample=False)
             p_store = cpu(torch.sigmoid(p).mean(0))
-            P, S, XYZI_m, XYZI_s, XYZI, BG = self.recfunc(x[self.sl_4d], self.n_samples, hbar[self.sl_4d])
+            P, S, XYZI_m, XYZI_s, BG = self.recfunc(x[self.sl_4d], self.n_samples, hbar[self.sl_4d])
 
         else:
             x = gpu(x.astype('float32'))
-            P, S, XYZI_m, XYZI_s, XYZI, BG = self.recfunc(x[self.sl_4d], self.n_samples)
+            P, S, XYZI_m, XYZI_s, BG = self.recfunc(x[self.sl_4d], self.n_samples)
 
         if self.local_context:
 
@@ -50,8 +50,8 @@ class Funcs:
 
             if self.global_context: H = hbar[self.sl_4d]
 
-            P_m1, S_m1, XYZI_m1, XYZIs_m1, _, BG = self.recfunc(x_m1[self.sl_4d], N=self.n_samples, H=H)
-            P_p1, S_p1, XYZI_p1, XYZIs_p1, _, BG = self.recfunc(x_p1[self.sl_4d], N=self.n_samples, H=H)
+            P_m1, S_m1, XYZI_m1, XYZIs_m1, BG = self.recfunc(x_m1[self.sl_4d], N=self.n_samples, H=H)
+            P_p1, S_p1, XYZI_p1, XYZIs_p1, BG = self.recfunc(x_p1[self.sl_4d], N=self.n_samples, H=H)
 
             CS = torch.cat([S_m1[:,None], S_p1[:,None]],1) 
             CP = torch.cat([P_m1[:,None], P_p1[:,None]],1)
@@ -62,19 +62,17 @@ class Funcs:
 
             CS = None; CP = None; CC = None; CCs = None
 
-        if self.ll_pars['gmm_loss']:
-            F = self.mgen.genfunc(S, XYZI)
-        else:
-            F = self.mgen.genfunc(S, XYZI_m)
+        F = self.mgen.genfunc(S, XYZI_m)
 
         self.optimizer_rec.zero_grad()
         if not self.fixed_psf:
             self.optimizer_gen.zero_grad()
             self.optimizer_wmap.zero_grad()
 
-        self.loss_var = x[self.sl_4d],P,S,XYZI_m,XYZI_s,XYZI,F,maps,BG, CS, CP, CC, CCs
+        self.loss_var = x[self.sl_4d],P,S,XYZI_m,XYZI_s,F,maps,BG, CS, CP, CC, CCs
 
-        loss = self.elbo_loss(x[self.sl_4d],P,S,XYZI_m,XYZI_s,XYZI,F,maps[self.sl_3d],BG,CS=CS,CP=CP,CC=CC, CCs=CCs)
+        loss = self.elbo_loss(x[self.sl_4d],P,S,XYZI_m,XYZI_s,F,maps[self.sl_3d],BG,CS=CS,CP=CP,CC=CC, CCs=CCs)
+        
         if not self.fixed_psf:
             loss += 1e3 * torch.norm(self.mgen.w_map.sum(-1).sum(-1), 1)
         loss.backward()
@@ -102,9 +100,7 @@ class Funcs:
 
     def train_sl(self):
         
-        s, xo, yo, zo, ints, bg = self.mgen.draw_func(batch_size=self.batch_size, M=gpu(np.array(self.train_map)[self.sl_3d].mean(0, keepdims=True)), local_context=self.local_context)         
-        x_sim = self.mgen.datagen_func(s, xo, yo, zo, ints, bg, add_noise=True)
-        xyzi = torch.cat([xo[:,:,None], yo[:,:,None],zo[:,:,None], ints[:,:,None]], 2)
+        x_sim, xyzi_mat, s_mask, bg = self.mgen.sim_func(M=gpu(np.array(self.train_map)[self.sl_3d].mean(0, keepdims=True)), batch_size=self.batch_size, local_context=self.local_context, add_wmap=True, add_noise=True, sim_iters=self.sim_iters)
        
         BG = None
         if self.global_context:
@@ -112,13 +108,13 @@ class Funcs:
             skip_cont = np.random.binomial(1, p=0.5)
             hbar = (1 - skip_cont) * hbar[self.sl_4d]
             hbar = hbar.repeat_interleave(self.batch_size, 0)
-            P, XYZI_m, XYZI_s, BG = self.recfunc(x_sim, H=hbar, sample=False)
+            P, S, XYZI_m, XYZI_s, BG = self.recfunc(x_sim, H=hbar, sample=False)
         else:
-            P, XYZI_m, XYZI_s, BG = self.recfunc(x_sim, sample=False)
+            P, S, XYZI_m, XYZI_s, BG = self.recfunc(x_sim, sample=False)
 
         self.optimizer_rec.zero_grad()
 
-        loss = self.simu_loss(P,s[:, self.n_inp//2],XYZI_m,XYZI_s,xyzi[:, self.n_inp//2], BG, bg)
+        loss = self.simu_loss(P,XYZI_m,XYZI_s, xyzi_mat, s_mask, BG, bg)
         loss.backward()
 
         torch.nn.utils.clip_grad_norm_(self.net_pars, max_norm=self.sl_norm, norm_type=2)

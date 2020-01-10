@@ -41,25 +41,21 @@ class Funcs:
 
             features = self.comb_net(comb_h)
             outputs = self.out_net.forward(features)
+            
             if self.sig_pred:
                 xyzi_s = torch.sigmoid(outputs['xyzi_sig']) + 0.01
             else:
                 xyzi_s = 0.2*torch.ones_like(outputs['xyzi'])
             
-            probs = torch.clamp(outputs['p'],-10.,10.)
+            probs = torch.clamp(outputs['p'],-8.,8.)
+            
             xyzi_m = outputs['xyzi']
-            xyzi_m[:,:2] = 0.65*torch.tanh(xyzi_m[:,:2])
+            xyzi_m[:,:2] = torch.tanh(xyzi_m[:,:2])
             xyzi_m[:,3] = torch.sigmoid(xyzi_m[:,3])
             if '3D' in self.modality:
                 xyzi_m[:,2] = torch.tanh(xyzi_m[:,2])
                 
             bg = torch.sigmoid(outputs['bg'])[:,0] if self.bg_pred else None
+            s = torch.distributions.Binomial(1,logits = probs.repeat_interleave(N,0)).sample()[:,0] if sample else None
             
-            if sample:
-                
-                sample = torch.distributions.Binomial(1,logits = probs.repeat_interleave(N,0)).sample()
-                xyzi_sample = torch.distributions.Normal(xyzi_m.repeat_interleave(N,0), xyzi_s.repeat_interleave(N,0)).rsample()
-                return probs[:,0], sample[:,0], xyzi_m, xyzi_s, xyzi_sample, bg
-            
-            else:
-                return probs[:,0], xyzi_m, xyzi_s, bg
+            return probs[:,0], s, xyzi_m, xyzi_s, bg

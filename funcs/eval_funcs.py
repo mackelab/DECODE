@@ -56,7 +56,7 @@ def decode_func(model, images, batch_size=100, z_scale=10, int_scale=10, use_tqd
         if model.sig_pred:  infs['XO_sig'] = []; infs['YO_sig'] = []; infs['ZO_sig'] = []
 
         for i in tqdm_func(range(int(np.ceil(N/batch_size)))):
-            p,xyzi,xyzi_sig,bg = model.recfunc(gpu(images[i*batch_size:(i+1)*batch_size+2]), H=gpu(hbar_inp[:len(images[i*batch_size:(i+1)*batch_size+2])]), sample=False)
+            p,s,xyzi,xyzi_sig,bg = model.recfunc(gpu(images[i*batch_size:(i+1)*batch_size+2]), H=gpu(hbar_inp[:len(images[i*batch_size:(i+1)*batch_size+2])]), sample=False)
 
             infs['Probs'].append(torch.sigmoid(p)[1:-1].cpu())
             infs['XO'].append(xyzi[1:-1,0].cpu())

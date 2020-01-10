@@ -39,64 +39,52 @@ class Funcs:
 
             return ((k-1)*torch.log(target) - target/self.ll_pars['theta'] - k*torch.log(self.ll_pars['theta']) - torch.lgamma(k)).sum(-1).sum(-1)    
 
-    def eval_q_z_x(self, S, P, XYZI_m,XYZI_s,XYZI=None, sv=False):
-
-        n_samples = 1 if sv else self.n_samples         
+    def eval_q_z_x_sl(self,P, XYZI_m,XYZI_s,XYZI_mat,S_mask):
+            
         log_prob = 0
+ 
+        P = torch.sigmoid(P)
 
-        if sv or self.ll_pars['gmm_loss']:
+        prob_mean = P.sum(-1).sum(-1)
 
-            P = torch.sigmoid(P)
+        prob_var = (P - P**2).sum(-1).sum(-1)
+        prob_gauss = D.Normal(prob_mean, torch.sqrt(prob_var))
+        log_prob += prob_gauss.log_prob(S_mask.sum(-1)) * S_mask.sum(-1)
 
-            prob_mean = P.sum(-1).sum(-1)
+        prob_normed = P/(P.sum(-1).sum(-1)[:,None,None])
 
-            prob_var = (P - P**2).sum(-1).sum(-1)
-            prob_gauss = D.Normal(prob_mean.repeat_interleave(n_samples,0), torch.sqrt(prob_var).repeat_interleave(n_samples,0))
-            log_prob += prob_gauss.log_prob(S.sum(-1).sum(-1)) * S.sum(-1).sum(-1)
+        p_inds = tuple((P+1).nonzero().transpose(1,0))
 
-            prob_normed = P/(P.sum(-1).sum(-1)[:,None,None])
+        xyzi_mu = XYZI_m[p_inds[0],:,p_inds[1],p_inds[2]]
+        xyzi_mu[:,0] += p_inds[2].type(torch.cuda.FloatTensor) + 0.5
+        xyzi_mu[:,1] += p_inds[1].type(torch.cuda.FloatTensor) + 0.5
 
-            p_inds = tuple((P+1).nonzero().transpose(1,0))
-            s_inds = tuple(S.nonzero().transpose(1,0))
+        xyzi_mu = xyzi_mu.reshape(self.batch_size,-1,4)
+        xyzi_sig = XYZI_s[p_inds[0],:,p_inds[1],p_inds[2]].reshape(self.batch_size,-1,4)
 
-            xyzi_mu = XYZI_m[p_inds[0],:,p_inds[1],p_inds[2]]
-            xyzi_mu[:,0] += p_inds[2].type(torch.cuda.FloatTensor) + 0.5
-            xyzi_mu[:,1] += p_inds[1].type(torch.cuda.FloatTensor) + 0.5
+        mix = D.Categorical(prob_normed[p_inds].reshape(self.batch_size,-1))
+        comp = D.Independent(D.Normal(xyzi_mu, xyzi_sig), 1)
+        gmm = MixtureSameFamily(mix, comp)
 
-            xyzi_mu = xyzi_mu.reshape(self.batch_size,-1,4)
-            xyzi_sig = XYZI_s[p_inds[0],:,p_inds[1],p_inds[2]].reshape(self.batch_size,-1,4)
+        gmm_log = gmm.log_prob(XYZI_mat.transpose(0,1)).transpose(0,1)
+        gmm_log = (gmm_log * S_mask).sum(-1)
 
-            xyzi_true = XYZI[s_inds[0],:,s_inds[1],s_inds[2]]
-            xyzi_true[:,0] += s_inds[2].type(torch.cuda.FloatTensor) + 0.5
-            xyzi_true[:,1] += s_inds[1].type(torch.cuda.FloatTensor) + 0.5
+        log_prob += gmm_log 
 
-            mix = D.Categorical(prob_normed[p_inds].reshape(self.batch_size,-1).repeat_interleave(n_samples,0))
-            comp = D.Independent(D.Normal(xyzi_mu.repeat_interleave(n_samples,0), xyzi_sig.repeat_interleave(n_samples,0)), 1)
-            gmm = MixtureSameFamily(mix, comp)
+        log_prob = log_prob.reshape(self.batch_size, 1)           
+                                    
+        return log_prob
+    
+    def eval_q_z_x_ae(self, S, P):
+        
+        n_samples = self.n_samples         
+        log_prob = 0
+            
+        prob = P[:,None].repeat_interleave(n_samples,1)
+        samp = S.reshape((self.batch_size, n_samples, S.shape[-2], S.shape[-1]))
 
-            s_counts = torch.torch.unique(s_inds[0],return_counts=True)[1]
-            s_max = s_counts.max()
-
-            s_mat = torch.cuda.FloatTensor(self.batch_size*n_samples,s_max,4).fill_(0)
-            s_mask = torch.cuda.FloatTensor(self.batch_size*n_samples,s_max).fill_(0)
-            s_arr = torch.cat([torch.arange(c) for c in s_counts], dim = 0)
-            s_mat[s_inds[0],s_arr] = xyzi_true
-            s_mask[s_inds[0],s_arr] = 1
-
-            gmm_log = gmm.log_prob(s_mat.transpose(0,1)).transpose(0,1)
-            gmm_log = (gmm_log * s_mask).sum(-1)
-
-            log_prob += gmm_log 
-
-            log_prob = log_prob.reshape(self.batch_size, n_samples)
-
-        else:
-
-            prob = P[:,None].repeat_interleave(n_samples,1)
-            samp = S.reshape((self.batch_size, n_samples, S.shape[-2], S.shape[-1]))
-
-            loss = nn.BCEWithLogitsLoss(reduction='none')
-            log_prob -= loss(prob, samp).sum(-1).sum(-1)             
+        loss = nn.BCEWithLogitsLoss(reduction='none')
+        log_prob -= loss(prob, samp).sum(-1).sum(-1)             
 
         return log_prob
 
@@ -164,10 +152,10 @@ class Funcs:
 
         return cost
 
-    def elbo_loss(self,X,P,S,XYZI_m,XYZI_s,XYZI_true,F,M,BG,CS=None,CP=None,CC=None,CCs=None):
+    def elbo_loss(self,X,P,S,XYZI_m,XYZI_s,F,M,BG,CS=None,CP=None,CC=None,CCs=None):
 
         log_px_given_z = self.eval_p_x_z(X, F, BG)
-        log_qd_given_x = self.eval_q_z_x(S, P, XYZI_m,XYZI_s,XYZI_true)
+        log_qd_given_x = self.eval_q_z_x_ae(S, P)
         log_pz_d = self.eval_p_z(S, M, CS)
 
         log_weight = log_px_given_z + self.ll_pars['prior_fac']*log_pz_d - log_qd_given_x
@@ -188,9 +176,9 @@ class Funcs:
 
         return total_cost
 
-    def simu_loss(self,P,S_true,XYZI_m,XYZI_s,XYZI_true, BG, BG_true):
+    def simu_loss(self,P,XYZI_m,XYZI_s, xyzi_mat, s_mask, BG, BG_true):
 
-        log_qd_given_x = self.eval_q_z_x(S_true, P, XYZI_m,XYZI_s,XYZI_true, sv=True)
+        log_qd_given_x = self.eval_q_z_x_sl(P, XYZI_m,XYZI_s, xyzi_mat, s_mask)
         bg_sq_error = self.eval_bg_sq_loss(BG, BG_true) if BG is not None else 0
 
         total_cost = torch.mean(bg_sq_error - log_qd_given_x[:,0])

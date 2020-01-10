@@ -48,7 +48,6 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
         self.mgen = LikelihoodModel(psf_pars)
         self.mgen.ll_pars = ll_pars
         self.ll_pars = ll_pars
-        self.ll_pars['gmm_loss'] = False
         
         self.train_mode = 'co'
         
@@ -57,12 +56,12 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
         self.sl_norm = 0.03
         self.warm_up = 1000
         self.fixed_psf = False
-        self.optim = AdamW
+        self.sim_iters = 5
         
         self.wobble = [0,0]
 
         self.filename = None
-        self.exp_pars = None
+        self.exp_params = None
         self.description = None  
         
         self.col_dict = {}
@@ -70,10 +69,13 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
         
     def init_dicts(self):
         
-        self.col_dict['exp_pars'] = self.exp_pars
+        self.col_dict['exp_params'] = self.exp_params
         self.col_dict['cost_hist'] = collections.OrderedDict([])
         self.col_dict['update_time'] = collections.OrderedDict([])
-        self.col_dict['factor'] = collections.OrderedDict([])
+        self.col_dict['n_per_img'] = collections.OrderedDict([])
+        
+        self.col_dict['cost_sl'] = collections.OrderedDict([])
+        self.col_dict['cost_ae'] = collections.OrderedDict([])
 
         if self.eval_csv is not None:
          
@@ -86,8 +88,6 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
             self.col_dict['eff_lat'] = collections.OrderedDict([])
             self.col_dict['eff_ax'] = collections.OrderedDict([])
             self.col_dict['eff_3d'] = collections.OrderedDict([])
-            self.col_dict['off_var'] = collections.OrderedDict([])
-            self.col_dict['sparse'] = collections.OrderedDict([])
             
     def eval_func(self, imgs):
             
@@ -98,7 +98,7 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
             nms_sampling(arr_infs, threshold=0.7, batch_size=len(imgs), nms=True, nms_cont=True)
             preds = array_to_list(arr_infs, wobble=self.wobble)
             
-            if self.ll_pars['gmm_loss'] or self.train_mode in ('sl','co'):
+            if self.train_mode in ('sl','co'):
                 preds = filt_preds(preds,95)
 
             tol_ax = 500 if '3D' in self.mgen.psf_pars['modality'] else np.inf
@@ -108,10 +108,7 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
                 if k in match_dict:
                     self.col_dict[k][self._iter_count] = match_dict[k]
                     
-            self.col_dict['off_var'][self._iter_count] = (arr_infs['XO'][arr_infs['Samples_ps'].nonzero()].var()/0.0833 + arr_infs['YO'][arr_infs['Samples_ps'].nonzero()].var()/0.0833)/2
-            self.col_dict['sparse'][self._iter_count] = (arr_infs['Probs'].sum(-1).sum(-1)/np.where(arr_infs['Probs']>0.05,1,0).sum(-1).sum(-1)).mean()
-
-        self.col_dict['factor'][self._iter_count] = arr_infs['Probs'].sum(-1).sum(-1).mean()
+        self.col_dict['n_per_img'][self._iter_count] = arr_infs['Probs'].sum(-1).sum(-1).mean()
     
     
     def fit(self, trainf=None, batch_size=15,n_samples=20, win_size=40, max_iters=50000, learning_rate=5e-4, print_output=True, print_freq=100):
@@ -146,13 +143,15 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
         self.lr = learning_rate
         self.sl_3d = np.index_exp[:, :, :]
         
-        if self.train_mode == 'sl':
+        if trainf is None:
             map_ini = np.ones([self.win_size,self.win_size])
         else:
             map_ini = trainf.mean(0) - trainf.mean(0).min()
             
         map_ini /= map_ini.sum()
         map_ini *= ((self.ll_pars['p_act'] * self.ll_pars['p_lambda'] * trainf[0].size))
+        
+        win_inds = self.window_map.nonzero()
 
         self.train_map = [map_ini.astype('float32')]
         if self.global_context: self.train_hbar = [np.zeros_like(trainf[:self.n_filters])]
@@ -162,11 +161,11 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
         tot_t = 0
 
         self.net_pars = list(self.single_net.parameters()) + list(self.comb_net.parameters()) + list(self.out_net.parameters())        
-        self.optimizer_rec = self.optim(self.net_pars, lr=self.lr, weight_decay=0.1)
+        self.optimizer_rec = torch.optim.AdamW(self.net_pars, lr=self.lr, weight_decay=0.1)
 
         if not self.fixed_psf:
-            self.optimizer_gen = self.optim([self.mgen.psf_pars[d] for d in self.mgen.trainable_pars], lr=25*self.lr)
-            self.optimizer_wmap = self.optim([self.mgen.w_map], lr=0.005 *self.lr)
+            self.optimizer_gen = torch.optim.AdamW([self.mgen.psf_pars[d] for d in self.mgen.trainable_pars], lr=25*self.lr)
+            self.optimizer_wmap = torch.optim.AdamW([self.mgen.w_map], lr=0.005 *self.lr)
         
         self.scheduler_rec = torch.optim.lr_scheduler.StepLR(self.optimizer_rec, step_size=1000, gamma=0.9)
         
@@ -181,25 +180,29 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
 
                 for x, x_m1, x_p1, ch in Iterator:
 
-                    win_inds = self.window_map.nonzero()
                     rand = np.random.randint(0,len(win_inds[0]))
                     y_off,x_off = win_inds[0][rand],win_inds[1][rand]
-
                     self.sl_3d = np.index_exp[:, y_off:(y_off + self.win_size),x_off:(x_off + self.win_size)]
                     self.sl_4d = (slice(None, None, None),) + self.sl_3d
 
                     if self.train_mode == 'co' or self._iter_count < self.warm_up:
 
                         loss = self.train_sl()
+                        self.col_dict['cost_sl'][self._iter_count] = cpu(loss)
 
                     if self._iter_count >= self.warm_up:
 
                         loss = self.train_ae(x, x_m1, x_p1)
                         tot_cost.append(cpu(loss))
+                        self.col_dict['cost_ae'][self._iter_count] = cpu(loss)
                 
             else:
                 
                 for _ in range(self.print_freq):
+                    
+                    rand = np.random.randint(0,len(win_inds[0]))
+                    y_off,x_off = win_inds[0][rand],win_inds[1][rand]
+                    self.sl_3d = np.index_exp[:, y_off:(y_off + self.win_size),x_off:(x_off + self.win_size)]
                     
                     loss = self.train_sl()
                     tot_cost.append(cpu(loss))                  
@@ -226,11 +229,9 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
                     else:
                         print('{}{}{:0.3f}'.format(' || ', 'Eff_3d: ', self.col_dict['eff_3d'][self._iter_count]), end='')
                     print('{}{}{:0.3f}'.format(' || ', 'Jaccard: ', self.col_dict['jaccard'][self._iter_count]), end='')
-                    print('{}{}{:0.3f}'.format(' || ', 'Factor: ', self.col_dict['factor'][self._iter_count]), end='')
+                    print('{}{}{:0.3f}'.format(' || ', 'Factor: ', self.col_dict['n_per_img'][self._iter_count]), end='')
                     print('{}{}{:0.3f}'.format(' || ', 'RMSE: ', self.col_dict['rmse_lat'][self._iter_count]), end='')
                     print('{}{}{:0.3f}'.format(' || ', 'Cost: ', self.col_dict['cost_hist'][self._iter_count]), end='')
-                    print('{}{}{:0.3f}'.format(' || ', 'Off_var: ', self.col_dict['off_var'][self._iter_count]), end='')
-                    print('{}{}{:0.3f}'.format(' || ', 'Sparseness: ', self.col_dict['sparse'][self._iter_count]), end='')
                     print('{}{}{:0.3f}'.format(' || ', 'Recall: ', self.col_dict['recall'][self._iter_count]), end='')
                     print('{}{}{:0.3f}'.format(' || ', 'Precision: ', self.col_dict['precision'][self._iter_count]), end='')
                     print('{}{}{:0.1f}'.format(' || ', 'Time Upd.: ', float(updatetime), ' ms '), end='')
@@ -238,7 +239,7 @@ class Model(_loss_funcs.Funcs, _train_funcs.Funcs, _rec_funcs.Funcs):
                     
                 else:
                     
-                    print('{}{:0.3f}'.format( 'Factor: ', self.col_dict['factor'][self._iter_count]), end='')
+                    print('{}{:0.3f}'.format( 'Factor: ', self.col_dict['n_per_img'][self._iter_count]), end='')
                     print('{}{}{:0.3f}'.format(' || ', 'Cost: ', self.col_dict['cost_hist'][self._iter_count]), end='')
                     print('{}{}{:0.1f}'.format(' || ', 'Time Upd.: ', float(updatetime), ' ms '), end='')
                     print('{}{}{}'.format(' || ', 'BatchNr.: ', self._iter_count))

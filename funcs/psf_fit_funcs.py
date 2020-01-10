@@ -105,9 +105,9 @@ def set_optimizers(model, lr):
     model: LikelihoodModel
     lr: Learning rate used for stochastic gradient descent.
     """       
-    model.optimizer_gen = optim.Adam([model.psf_pars[d] for d in model.trainable_pars], lr=model.lr)
-    model.optimizer_wmap = optim.Adam([model.w_map], lr=0.0002*model.lr)
-    model.optimizer_locs = optim.Adam([model.XY, model.I], lr=model.lr)
+    model.optimizer_gen = optim.AdamW([model.psf_pars[d] for d in model.trainable_pars], lr=model.lr)
+    model.optimizer_wmap = optim.AdamW([model.w_map], lr=0.0002*model.lr)
+    model.optimizer_locs = optim.AdamW([model.XY, model.I], lr=model.lr)
 
     model.scheduler_gen = torch.optim.lr_scheduler.StepLR(model.optimizer_gen, step_size=100, gamma=0.95)
     model.scheduler_wmap = torch.optim.lr_scheduler.StepLR(model.optimizer_wmap, step_size=100, gamma=0.95)
