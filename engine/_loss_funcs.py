@@ -65,11 +65,12 @@ class Funcs:
         mix = D.Categorical(prob_normed[p_inds].reshape(self.batch_size,-1))
         comp = D.Independent(D.Normal(xyzi_mu, xyzi_sig), 1)
         gmm = MixtureSameFamily(mix, comp)
+     
+        if S_mask.sum():
 
-        gmm_log = gmm.log_prob(XYZI_mat.transpose(0,1)).transpose(0,1)
-        gmm_log = (gmm_log * S_mask).sum(-1)
-
-        log_prob += gmm_log 
+             gmm_log = gmm.log_prob(XYZI_mat.transpose(0,1)).transpose(0,1)
+             gmm_log = (gmm_log * S_mask).sum(-1)
+             log_prob += gmm_log 
 
         log_prob = log_prob.reshape(self.batch_size, 1)           
                                     
