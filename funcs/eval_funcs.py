@@ -5,6 +5,7 @@ from utils import *
 import numpy as np
 from operator import itemgetter
 from tqdm import tqdm
+from scipy.spatial.distance import cdist
 
 def decode_func(model, images, batch_size=100, z_scale=10, int_scale=10, use_tqdm=False):   
     """Performs inference for a given set of images.
@@ -353,15 +354,11 @@ def matching(test_csv, pred_inp, size_xy = [6400,6400], tolerance=250, border=45
                 preds.append(pred_list.pop(0))
                 if len(pred_list) < 1:
                     break
-            dist_arr = np.zeros([len(tests), len(preds)])
-            ax_arr = np.zeros([len(tests), len(preds)])
-            tot_arr = np.zeros([len(tests), len(preds)])
 
-            for t in range(len(tests)):
-                for p in range(len(preds)):
-                    dist_arr[t, p] = np.sqrt((tests[t][2] - preds[p][2]) ** 2 + (tests[t][3] - preds[p][3]) ** 2)
-                    ax_arr[t, p] = np.abs((tests[t][4] - preds[p][4]))
-                    tot_arr[t, p] = np.sqrt((tests[t][2] - preds[p][2]) ** 2 + (tests[t][3] - preds[p][3]) ** 2 + (tests[t][4] - preds[p][4]) ** 2)
+            dist_arr = cdist(np.array(tests)[:,2:4],np.array(preds)[:,2:4])
+            ax_arr =  cdist(np.array(tests)[:,4:5],np.array(preds)[:,4:5])
+            tot_arr = np.sqrt(dist_arr**2 + ax_arr**2)
+                    
             if tolerance_ax == np.inf:
                 tot_arr = dist_arr
 
