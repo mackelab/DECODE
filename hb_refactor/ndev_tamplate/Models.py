@@ -109,7 +109,6 @@ class FlexUnetDecoder(nn.Module):
             nf //=2
 
     def forward(self, x, features):
-#        set_trace()
         for i in self.module_dict:
             if i.startswith('conc'):
                   x = self.module_dict[i](x)
@@ -125,7 +124,7 @@ class FlexUnetDecoder(nn.Module):
 
 # Cell
 class SUNET(nn.Module):
-    '''General Encoder for 2D or 3D
+    '''General UNET for 2D or 3D
        \n`ni`: in_channels
        \n`nf`: out_channels
        \n`ks`: kernal_size
