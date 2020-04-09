@@ -2,12 +2,14 @@
 
 __all__ = ["index", "modules", "custom_doc_links", "git_url"]
 
-index = {"layer_types": "00_core.ipynb",
-         "extract_layer": "00_core.ipynb",
-         "FlexConvLayer": "00_core.ipynb",
-         "FlexUnetEncoder": "00_core.ipynb",
-         "FlexUnetDecoder": "00_core.ipynb",
-         "SUNET": "00_core.ipynb"}
+index = {"init_func": "00_models.ipynb",
+         "layer_types": "00_models.ipynb",
+         "extract_layer": "00_models.ipynb",
+         "FlexConvLayer": "00_models.ipynb",
+         "init_default": "00_models.ipynb",
+         "FlexUnetEncoder": "00_models.ipynb",
+         "FlexUnetDecoder": "00_models.ipynb",
+         "SUNET": "00_models.ipynb"}
 
 modules = ["Models.py"]
 
