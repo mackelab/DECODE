@@ -9,9 +9,13 @@ index = {"init_func": "00_models.ipynb",
          "init_default": "00_models.ipynb",
          "FlexUnetEncoder": "00_models.ipynb",
          "FlexUnetDecoder": "00_models.ipynb",
-         "SUNET": "00_models.ipynb"}
+         "SUNET": "00_models.ipynb",
+         "tiff_imread": "01_simulation.ipynb",
+         "hasattrs": "01_simulation.ipynb",
+         "show_image": "01_simulation.ipynb"}
 
-modules = ["Models.py"]
+modules = ["Models.py",
+           "simulation.py"]
 
 doc_url = "https://habib.s.t.bukhari.github.io/nbdev_template/"
 
