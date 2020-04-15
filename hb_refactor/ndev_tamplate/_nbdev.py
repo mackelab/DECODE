@@ -12,7 +12,10 @@ index = {"init_func": "00_models.ipynb",
          "SUNET": "00_models.ipynb",
          "tiff_imread": "01_simulation.ipynb",
          "hasattrs": "01_simulation.ipynb",
-         "show_image": "01_simulation.ipynb"}
+         "show_image": "01_simulation.ipynb",
+         "tst_check_tensor": "01_simulation.ipynb",
+         "ScaleTensor": "01_simulation.ipynb",
+         "Sample3D": "01_simulation.ipynb"}
 
 modules = ["Models.py",
            "simulation.py"]

@@ -103,13 +103,16 @@ class FlexUnetEncoder(nn.Module):
     def forward(self, x):
         features = []
         for i in self.module_dict:
-            if     i.startswith('pass'): x = self.module_dict[i](x)
-            else:  x = self.module_dict[i](x) ;features.append(x)
-        return (x, features[:-1])
+            x = self.module_dict[i](x)
+            if  i.startswith('save'): features.append(x)
+
+        features = features[:-1];
+        features.append(x)
+        return features
 
 # Cell
 class FlexUnetDecoder(nn.Module):
-    '''Creates flexible encoder for Unets
+    '''Creates flexible dencoder for Unets
        \n`nf`: out_channels
        \n`ks`: kernal_size
        \n`st`: stride
@@ -127,7 +130,10 @@ class FlexUnetDecoder(nn.Module):
                                                           FlexConvLayer(nf//2, nf//2, ks=ks, st=st, act_fn=act_fn, ndim=ndim, **kwargs))
             nf //=2
 
-    def forward(self, x, features):
+    def forward(self, features):
+        #x replaced with features
+        #rework this a bit
+        x = features.pop()
         for i in self.module_dict:
             if i.startswith('conc'):
                   x = self.module_dict[i](x)
@@ -158,5 +164,5 @@ class SUNET(nn.Module):
         self.decoder = FlexUnetDecoder(nc, ks, st, pd+1, conv_depth, ndim, **kwargs)
     def forward(self, x):
         x = self.encoder(x)
-        x = self.decoder(*x)
+        x = self.decoder(x)
         return x
