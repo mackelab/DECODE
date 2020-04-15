@@ -67,8 +67,12 @@ def _get_binomial(total_count, probs, **kwargs):
 
 # Cell
 class Sample3D:
-    _order = 1
-    def __init__(self, min_int):
+    """Samples from `3D` distributions and returns locations `locs` of emitters, `x`, `y`, `z` offsets and `ints` intensities`
+       \n`min_ints`: approx minumal intensities of measured emitters
+
+    """
+    _order = 2
+    def __init__(self, min_int: float):
         self.min_int = min_int
 
     def __call__(self, x):
