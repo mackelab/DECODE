@@ -8,6 +8,7 @@ from tifffile import imread
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import inspect
 
 # Cell
 def tiff_imread(path):
@@ -37,7 +38,7 @@ def show_image(im, ax=None, title=None, figsize=(4, 5), **kwargs,):
 # Cell
 def tst_check_tensor(x):
     "cehcks if x is torch.Tensor"
-    assert type(x) == torch.Tensor, f'Must be torch.tensor not {type(x)}'
+    assert type(x) == torch.Tensor, f'must be torch.tensor not {type(x)}'
     return
 
 # Cell
@@ -59,17 +60,16 @@ class ScaleTensor:
         return self.ratio * x + self.low- self.data_min * self.ratio
 
 # Cell
-def _get_uniform(low, high):
+def _sam_uniform(low, high):
     return getattr(torch.distributions, 'Uniform')(low=low, high=high).sample()
 
-def _get_binomial(total_count, probs, **kwargs):
+def _sam_binomial(total_count, probs, **kwargs):
     return getattr(torch.distributions, 'Binomial')(total_count=total_count, probs=probs, **kwargs).sample()
 
 # Cell
 class Sample3D:
     """Samples from `3D` distributions and returns locations `locs` of emitters, `x`, `y`, `z` offsets and `ints` intensities`
        \n`min_ints`: approx minumal intensities of measured emitters
-
     """
     _order = 2
     def __init__(self, min_int: float):
@@ -79,11 +79,11 @@ class Sample3D:
         tst_check_tensor(x)
         dev = self._get_device(x)
         zeros = torch.zeros_like(x)
-        locs  = _get_binomial(1, x).to(dev)
-        x_os  = _get_uniform(zeros-0.5, zeros+0.5).to(dev)
-        y_os  = _get_uniform(zeros-0.5, zeros+0.5).to(dev)
-        z_os  = _get_uniform(zeros-0.5, zeros+0.5).to(dev)
-        ints  = _get_uniform(zeros+self.min_int, torch.ones_like(zeros)).to(dev)
+        locs  = _sam_binomial(1, x).to(dev)
+        x_os  = _sam_uniform(zeros-0.5, zeros+0.5).to(dev)
+        y_os  = _sam_uniform(zeros-0.5, zeros+0.5).to(dev)
+        z_os  = _sam_uniform(zeros-0.5, zeros+0.5).to(dev)
+        ints  = _sam_uniform(zeros+self.min_int, torch.ones_like(zeros)).to(dev)
         x_os *= locs
         y_os *= locs
         z_os *= locs
