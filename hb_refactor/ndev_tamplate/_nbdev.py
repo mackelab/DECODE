@@ -10,15 +10,20 @@ index = {"init_func": "00_models.ipynb",
          "FlexUnetEncoder": "00_models.ipynb",
          "FlexUnetDecoder": "00_models.ipynb",
          "SUNET": "00_models.ipynb",
-         "tiff_imread": "01_simulation.ipynb",
-         "hasattrs": "01_simulation.ipynb",
-         "show_image": "01_simulation.ipynb",
-         "tst_check_tensor": "01_simulation.ipynb",
-         "ScaleTensor": "01_simulation.ipynb",
-         "Sample3D": "01_simulation.ipynb"}
+         "PointSourceGaussian": "pointsource.ipynb",
+         "print_clas_signature": "transforms.ipynb",
+         "TransfromBase": "transforms.ipynb",
+         "ScaleTensor": "transforms.ipynb",
+         "RandomCrop3D": "transforms.ipynb",
+         "tiff_imread": "utils.ipynb",
+         "hasattrs": "utils.ipynb",
+         "show_image": "utils.ipynb",
+         "tst_check_tensor": "utils.ipynb"}
 
 modules = ["Models.py",
-           "simulation.py"]
+           "pointsource.py",
+           "transforms.py",
+           "utils.py"]
 
 doc_url = "https://habib.s.t.bukhari.github.io/nbdev_template/"
 

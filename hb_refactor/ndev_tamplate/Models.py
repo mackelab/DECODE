@@ -19,6 +19,8 @@ def _get_bn(ndim: int):
     assert 1 <= ndim <=3
     return getattr(nn, f'BatchNorm{ndim}d')
 
+
+
 # Cell
 def init_func(m, func=nn.init.kaiming_normal_):
     "Initialize pytorch model `m` weights with `func`"
@@ -42,21 +44,31 @@ def extract_layer(m, name=torch.nn.modules.Conv3d):
 
 # Cell
 class FlexConvLayer(nn.Sequential):
-    '''Create Flexible Conv Layers
+    '''
+      Create Flexible Convolution layer.
+
+      This module allows to create 1, 2, or 3D convolutional layers containing (optional) activation function,
+      batch normalization, upsampling or additional Pytorch Classes
+
+      Parameters:
        \n`ni`: in_channels
        \n`nf`: out_channels
        \n`ks`: kernal_size
        \n`st`: stride
        \n`pd`: padding default is 1
-       \n`sf`: scale factore if for upsampling layer
-       \n`bn`: adds BatchNorm layer if `True`
        \n`ups`: adds Upsampling layer if `True`
+       \n`sf`: scale factore if `ups` = True  upsampling layer
+       \n`bn`: adds BatchNorm layer if `True`
        \n`ndim`: number of dimensions for layers e.g if 3 will create `nn.Conv3D` or `nn.BatchNorm3d`
        \n`func`: initiation function by default `nn.init.kaiming_normal_`
        \n`xtra`: adds any extra nn.Layers
-       \n`act_fn`: activation function'''
-    def __init__(self, ni, nf,ks=3, st=1, ndim=3, sf=2, pd=None, act_fn=None, bn=False, xtra=None, ups=False, func=nn.init.kaiming_normal_, **kwargs):
+       \n`act_fn`: activation function
 
+       \nReturns:
+       Sequential model containing specified Paramaters
+
+       '''
+    def __init__(self, ni: int, nf: int, ks: int=3, st:int=1, ndim: int=3, sf: int=2, pd: int=None, act_fn=None, bn: bool=False, ups: bool=False, xtra=None, func=nn.init.kaiming_normal_, **kwargs):
         layers = []
         if pd is None: pd = 1
         conv_l = _get_conv(ndim)(in_channels=ni, out_channels=nf,kernel_size =ks, stride=st, padding=pd, **kwargs)
@@ -68,6 +80,8 @@ class FlexConvLayer(nn.Sequential):
         if xtra      : layers.append(xtra)
         super().__init__(*layers)
 
+
+
 # Cell
 def init_default(m, func=nn.init.kaiming_normal_):
     "Initialize `m` weights with `func` and set `bias` to 0."
@@ -78,26 +92,35 @@ def init_default(m, func=nn.init.kaiming_normal_):
 
 # Cell
 class FlexUnetEncoder(nn.Module):
-    '''Creates flexible encoder for Unets
-       \n`ni`: in_channels
-       \n`nf`: out_channels
-       \n`ks`: kernal_size
-       \n`st`: stride
-       \n`pd`: padding default is 1
-       \n`bn`: adds BatchNorm layer if `True`
-       \n`act_fn`: activation function
-       \n`conv_depth`: number of conv layers
-       '''
+    '''
+    Creates flexible encoder for Unets.
 
-    def __init__(self, ni, nf, ks, st, pd, conv_depth, ndim=3,  act_fn=nn.ELU, **kwargs):
+    Provided convolution depth will generate unet encoder based on `FlexConvLayer`. During forward pass will also return `features` tensor, contaning stored features which will be used in decoder for  concatinating during  upsampling. Last element of `feature` is `x` which used to enter first layer in `decoder`
+
+    Parameters:
+    \n`ni`: in_channels
+    \n`nf`: out_channels
+    \n`ks`: kernal_size
+    \n`st`: stride
+    \n`pd`: padding default is 1
+    \n`bn`: adds BatchNorm layer if `True`
+    \n`act_fn`: activation function
+    \n`conv_depth`: number of conv layers
+
+    \nReturns:
+    Sequential encoder, and feautre list
+
+    '''
+
+    def __init__(self, ni: int, nf: int, ks: int, st: int, pd: int, conv_depth: int, ndim: int=3,  act_fn=nn.ELU, **kwargs):
         super().__init__()
         nf = nf
         self.module_dict = nn.ModuleDict()
-        self.module_dict[f'pass_n'] = FlexConvLayer(ni, nf, act_fn=act_fn, ndim=ndim, **kwargs)
-        self.module_dict[f'save_n'] = FlexConvLayer(nf, nf, act_fn=act_fn, ndim=ndim, **kwargs)
+        self.module_dict['pass_n'] = FlexConvLayer(ni, nf, act_fn=act_fn, ndim=ndim, **kwargs)
+        self.module_dict['save_n'] = FlexConvLayer(nf, nf, act_fn=act_fn, ndim=ndim, **kwargs)
         for i in range(conv_depth):
             self.module_dict[f'pass_{i}_k'] = nn.Sequential(FlexConvLayer(nf, nf, ks=ks-1, st=st + 1, act_fn=act_fn, pd=pd, ndim=ndim, **kwargs))
-            self.module_dict[f'save_{i}'] = nn.Sequential(FlexConvLayer(nf, nf*2, ks=ks, st=st, act_fn=act_fn, ndim=ndim, **kwargs), )
+            self.module_dict[f'save_{i}']  = nn.Sequential(FlexConvLayer(nf, nf*2, ks=ks, st=st, act_fn=act_fn, ndim=ndim, **kwargs), )
             self.module_dict[f'pass_{i}'] = nn.Sequential(FlexConvLayer(nf*2, nf*2, ks=ks, st=st, act_fn=act_fn, ndim=ndim, **kwargs))
             nf *=2
     def forward(self, x):
@@ -110,16 +133,28 @@ class FlexUnetEncoder(nn.Module):
         features.append(x)
         return features
 
+
+#RENAME everything
+
 # Cell
 class FlexUnetDecoder(nn.Module):
-    '''Creates flexible dencoder for Unets
-       \n`nf`: out_channels
-       \n`ks`: kernal_size
-       \n`st`: stride
-       \n`pd`: padding default is 1
-       \n`conv_depth`: number of conv layers
-       '''
-    def __init__(self, nf,  ks, st, pd, conv_depth, ndim=3,  act_fn=nn.ELU, **kwargs):
+    '''
+    Creates flexible decoder for Unets.
+
+    This class will autmatically create decoder based on encoder paramaters. In forward pass, it will take features generated from FlexUnetEcnder and concatinate them on upsampled layers.
+
+    Parameters:
+    \n`nf`: out_channels for the first layer in encoder
+    \n`ks`: kernal_size
+    \n`st`: stride
+    \n`pd`: padding default is 1
+    \n`conv_depth`: number of conv layers
+    \n`act_fn`: activation function by default its `nn.ELU`
+
+    Returns:
+    Decoder Model, and output of unet Model wchich should match input Dimensions
+    '''
+    def __init__(self, nf: int,  ks: int, st: int, pd: int, conv_depth: int, ndim=3,  act_fn=nn.ELU, **kwargs):
         super().__init__()
         nf = self._get_enc_filter(nf, conv_depth)
         self.module_dict = nn.ModuleDict()
@@ -143,20 +178,31 @@ class FlexUnetDecoder(nn.Module):
 
     @staticmethod
     def _get_enc_filter(nf, conv_depth):
+        '''calculates number of in filters for decoder model given conv_depth and nf
+        in the first conv layer in unet encoder'''
         nf = nf
         for i in range(conv_depth): nf *=2
         return nf
 
 # Cell
 class SUNET(nn.Module):
-    '''General UNET for 2D or 3D
-       \n`ni`: in_channels
-       \n`nf`: out_channels
-       \n`ks`: kernal_size
-       \n`st`: stride
-       \n`pd`: padding default is 1
-       \n`ndim`: (2, 3) 2D or 3D depending on dimensions
-       \n`conv_depth`: number of conv layers
+    '''
+    Generates 1D, 2D or 3D Unet.
+
+    Autmatically genrates UNET model based on user specified paramaters
+
+    Parameters:
+    \n`ni`: in_channels
+    \n`nf`: out_channels
+    \n`ks`: kernal_size
+    \n`st`: stride
+    \n`pd`: padding default is 1
+    \n`ndim`: (1, 2, 3) 2D or 3D depending on dimensions
+    \n`conv_depth`: number of conv layers
+    \n **kwargs: see `FlexConvLayer` for generating flexible conv layers
+
+    Returns:
+    \n Unet Model
     '''
     def __init__(self, ni, nc, ks, st, pd, conv_depth, ndim, **kwargs):
         super().__init__()
